@@ -7,17 +7,17 @@ import pl.meetings.roombooking.pricing.PriceQuote;
 
 public interface BookingService {
 
-    List<BookingResponse> findByDate(LocalDate date, Long roomId);
+    List<BookingResponse> findByDate(LocalDate date, Long roomId, String ownerEmail);
 
-    BookingResponse getById(Long id);
+    BookingResponse getById(Long id, String ownerEmail);
 
-    List<BookingResponse> findByOrganizer(String email);
+    List<BookingResponse> findMine(String ownerEmail);
 
     PriceQuote quote(BookingRequest request);
 
-    BookingResponse create(BookingRequest request);
+    BookingResponse create(BookingRequest request, String ownerEmail);
 
-    CancellationResponse cancel(Long id);
+    CancellationResponse cancel(Long id, String ownerEmail);
 
     List<AvailabilitySlot> availability(Long roomId, LocalDate date);
 }

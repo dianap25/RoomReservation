@@ -10,6 +10,8 @@ import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import pl.meetings.roombooking.common.BookingAccessDeniedException;
 import pl.meetings.roombooking.common.BookingConflictException;
 import pl.meetings.roombooking.common.BookingNotFoundException;
 import pl.meetings.roombooking.common.BookingRuleViolationException;
@@ -41,18 +44,19 @@ public class BookingController {
     @GetMapping
     public List<BookingResponse> findByDate(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            @RequestParam(required = false) Long roomId) {
-        return bookingService.findByDate(date, roomId);
+            @RequestParam(required = false) Long roomId,
+            @AuthenticationPrincipal UserDetails principal) {
+        return bookingService.findByDate(date, roomId, principal.getUsername());
     }
 
     @GetMapping("/{id}")
-    public BookingResponse getById(@PathVariable Long id) {
-        return bookingService.getById(id);
+    public BookingResponse getById(@PathVariable Long id, @AuthenticationPrincipal UserDetails principal) {
+        return bookingService.getById(id, principal.getUsername());
     }
 
-    @GetMapping("/by-organizer")
-    public List<BookingResponse> findByOrganizer(@RequestParam String email) {
-        return bookingService.findByOrganizer(email);
+    @GetMapping("/mine")
+    public List<BookingResponse> findMine(@AuthenticationPrincipal UserDetails principal) {
+        return bookingService.findMine(principal.getUsername());
     }
 
     @PostMapping("/quote")
@@ -61,19 +65,25 @@ public class BookingController {
     }
 
     @PostMapping
-    public ResponseEntity<BookingResponse> create(@Valid @RequestBody BookingRequest request) {
-        BookingResponse booking = bookingService.create(request);
+    public ResponseEntity<BookingResponse> create(@Valid @RequestBody BookingRequest request,
+            @AuthenticationPrincipal UserDetails principal) {
+        BookingResponse booking = bookingService.create(request, principal.getUsername());
         return ResponseEntity.status(HttpStatus.CREATED).body(booking);
     }
 
     @PostMapping("/{id}/cancel")
-    public CancellationResponse cancel(@PathVariable Long id) {
-        return bookingService.cancel(id);
+    public CancellationResponse cancel(@PathVariable Long id, @AuthenticationPrincipal UserDetails principal) {
+        return bookingService.cancel(id, principal.getUsername());
     }
 
     @ExceptionHandler({RoomNotFoundException.class, BookingNotFoundException.class})
     public ResponseEntity<ErrorResponse> handleNotFound(RuntimeException ex) {
         return error(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    @ExceptionHandler(BookingAccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDenied(BookingAccessDeniedException ex) {
+        return error(HttpStatus.FORBIDDEN, ex.getMessage());
     }
 
     @ExceptionHandler(BookingConflictException.class)

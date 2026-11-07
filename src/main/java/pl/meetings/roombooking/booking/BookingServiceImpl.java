@@ -13,6 +13,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import pl.meetings.roombooking.common.BookingAccessDeniedException;
 import pl.meetings.roombooking.common.BookingConflictException;
 import pl.meetings.roombooking.common.BookingNotFoundException;
 import pl.meetings.roombooking.common.BookingRuleViolationException;
@@ -22,6 +23,8 @@ import pl.meetings.roombooking.pricing.PriceCalculator;
 import pl.meetings.roombooking.pricing.PriceQuote;
 import pl.meetings.roombooking.room.Room;
 import pl.meetings.roombooking.room.RoomRepository;
+import pl.meetings.roombooking.user.AppUser;
+import pl.meetings.roombooking.user.UserService;
 
 @Service
 public class BookingServiceImpl implements BookingService {
@@ -34,36 +37,39 @@ public class BookingServiceImpl implements BookingService {
 
     private final BookingRepository bookingRepository;
     private final RoomRepository roomRepository;
+    private final UserService userService;
     private final PriceCalculator priceCalculator;
     private final TimeProvider timeProvider;
 
     public BookingServiceImpl(BookingRepository bookingRepository, RoomRepository roomRepository,
-            PriceCalculator priceCalculator, TimeProvider timeProvider) {
+            UserService userService, PriceCalculator priceCalculator, TimeProvider timeProvider) {
         this.bookingRepository = bookingRepository;
         this.roomRepository = roomRepository;
+        this.userService = userService;
         this.priceCalculator = priceCalculator;
         this.timeProvider = timeProvider;
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<BookingResponse> findByDate(LocalDate date, Long roomId) {
+    public List<BookingResponse> findByDate(LocalDate date, Long roomId, String ownerEmail) {
         List<Booking> bookings = roomId == null
-                ? bookingRepository.findByDateOrderByStartTime(date)
-                : bookingRepository.findByRoomIdAndDateOrderByStartTime(roomId, date);
+                ? bookingRepository.findByOrganizerEmailIgnoreCaseAndDateOrderByStartTime(ownerEmail, date)
+                : bookingRepository.findByOrganizerEmailIgnoreCaseAndRoomIdAndDateOrderByStartTime(
+                        ownerEmail, roomId, date);
         return bookings.stream().map(BookingResponse::from).toList();
     }
 
     @Override
     @Transactional(readOnly = true)
-    public BookingResponse getById(Long id) {
-        return BookingResponse.from(findBooking(id));
+    public BookingResponse getById(Long id, String ownerEmail) {
+        return BookingResponse.from(findOwnedBooking(id, ownerEmail));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<BookingResponse> findByOrganizer(String email) {
-        return bookingRepository.findByOrganizerEmailIgnoreCaseOrderByDateAscStartTimeAsc(email).stream()
+    public List<BookingResponse> findMine(String ownerEmail) {
+        return bookingRepository.findByOrganizerEmailIgnoreCaseOrderByDateAscStartTimeAsc(ownerEmail).stream()
                 .map(BookingResponse::from)
                 .toList();
     }
@@ -77,12 +83,13 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     @Transactional
-    public BookingResponse create(BookingRequest request) {
+    public BookingResponse create(BookingRequest request, String ownerEmail) {
         Room room = findRoom(request.roomId());
         PriceQuote quote = quoteFor(room, request);
         validateNotInPast(request);
         validateNoOverlap(room, request);
-        Booking booking = new Booking(room, request.organizerName(), request.organizerEmail(),
+        AppUser organizer = userService.getByEmail(ownerEmail);
+        Booking booking = new Booking(room, organizer.getDisplayName(), organizer.getEmail(),
                 request.date(), request.startTime(), request.endTime(), request.attendees(),
                 BookingStatus.CONFIRMED, quote.totalPrice(), timeProvider.now());
         return BookingResponse.from(bookingRepository.save(booking));
@@ -90,8 +97,8 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     @Transactional
-    public CancellationResponse cancel(Long id) {
-        Booking booking = findBooking(id);
+    public CancellationResponse cancel(Long id, String ownerEmail) {
+        Booking booking = findOwnedBooking(id, ownerEmail);
         if (booking.getStatus() == BookingStatus.CANCELLED) {
             throw new BookingRuleViolationException("Rezerwacja jest już anulowana");
         }
@@ -141,6 +148,14 @@ public class BookingServiceImpl implements BookingService {
     private Booking findBooking(Long id) {
         return bookingRepository.findById(id)
                 .orElseThrow(() -> new BookingNotFoundException(String.format("Rezerwacja o id %d nie istnieje", id)));
+    }
+
+    private Booking findOwnedBooking(Long id, String ownerEmail) {
+        Booking booking = findBooking(id);
+        if (!booking.getOrganizerEmail().equalsIgnoreCase(ownerEmail)) {
+            throw new BookingAccessDeniedException("Brak dostępu do tej rezerwacji");
+        }
+        return booking;
     }
 
     private static void validateTimes(BookingRequest request) {

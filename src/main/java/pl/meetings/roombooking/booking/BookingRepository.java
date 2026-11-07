@@ -7,11 +7,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface BookingRepository extends JpaRepository<Booking, Long> {
 
-    List<Booking> findByDateOrderByStartTime(LocalDate date);
+    List<Booking> findByOrganizerEmailIgnoreCaseAndDateOrderByStartTime(String organizerEmail, LocalDate date);
 
-    List<Booking> findByRoomIdAndDateOrderByStartTime(Long roomId, LocalDate date);
+    List<Booking> findByOrganizerEmailIgnoreCaseAndRoomIdAndDateOrderByStartTime(
+            String organizerEmail, Long roomId, LocalDate date);
 
-    List<Booking> findByOrganizerEmailIgnoreCaseOrderByDateAscStartTimeAsc(String email);
+    List<Booking> findByOrganizerEmailIgnoreCaseOrderByDateAscStartTimeAsc(String organizerEmail);
 
     List<Booking> findByRoomIdAndDateAndStatus(Long roomId, LocalDate date, BookingStatus status);
 }
