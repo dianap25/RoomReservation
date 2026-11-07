@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Rezerwacja sal</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+    <h1>Rezerwacja sal spotkań</h1>
+    <div class="toolbar">
+        <label for="date">Dzień</label>
+        <input type="date" id="date" value="2027-03-15">
+    </div>
+    <div id="rooms" class="rooms" aria-label="Sale"></div>
+    <div id="rooms-message" class="message" role="status"></div>
+</header>
+
+<main>
+    <section class="column">
+        <h2 id="availability-title">Dostępność</h2>
+        <p id="availability-hint" class="hint">Wybierz salę, aby zobaczyć dostępność.</p>
+        <div id="availability" class="grid"></div>
+
+        <h2>Nowa rezerwacja</h2>
+        <form id="booking-form" novalidate>
+            <label>Organizator
+                <input name="organizerName" type="text" maxlength="80" autocomplete="name">
+            </label>
+            <label>E-mail
+                <input name="organizerEmail" type="email" autocomplete="email">
+            </label>
+            <label>Liczba osób
+                <input name="attendees" type="number" min="1" value="1">
+            </label>
+            <label>Od
+                <input name="startTime" type="time" step="1800" value="10:00">
+            </label>
+            <label>Do
+                <input name="endTime" type="time" step="1800" value="12:00">
+            </label>
+            <button type="submit">Rezerwuj</button>
+        </form>
+        <dl id="quote" class="quote"></dl>
+        <div id="form-message" class="message" role="status"></div>
+    </section>
+
+    <aside class="column">
+        <h2 id="bookings-title">Rezerwacje</h2>
+        <div id="bookings-message" class="message" role="status"></div>
+        <ul id="bookings" class="bookings"></ul>
+    </aside>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
