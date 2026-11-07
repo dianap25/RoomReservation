@@ -1,11 +1,13 @@
 package pl.meetings.roombooking.room;
 
+import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
 import jakarta.validation.Valid;
 
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -17,8 +19,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import pl.meetings.roombooking.booking.AvailabilitySlot;
+import pl.meetings.roombooking.booking.BookingService;
 import pl.meetings.roombooking.common.BookingRuleViolationException;
 import pl.meetings.roombooking.common.ErrorResponse;
 import pl.meetings.roombooking.common.RoomNotFoundException;
@@ -28,9 +33,11 @@ import pl.meetings.roombooking.common.RoomNotFoundException;
 public class RoomController {
 
     private final RoomService roomService;
+    private final BookingService bookingService;
 
-    public RoomController(RoomService roomService) {
+    public RoomController(RoomService roomService, BookingService bookingService) {
         this.roomService = roomService;
+        this.bookingService = bookingService;
     }
 
     @GetMapping
@@ -41,6 +48,12 @@ public class RoomController {
     @GetMapping("/{id}")
     public Room getById(@PathVariable Long id) {
         return roomService.getById(id);
+    }
+
+    @GetMapping("/{id}/availability")
+    public List<AvailabilitySlot> availability(@PathVariable Long id,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return bookingService.availability(id, date);
     }
 
     @PostMapping
