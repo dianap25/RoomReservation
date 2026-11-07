@@ -3,10 +3,11 @@
 # Drives the REST API of an app started with the recording agent
 # (./mvnw -DskipTests package testgen:record); the agent itself writes recordings.jsonl.
 # Accounts and test passwords come from src/main/resources/data.sql (see README.md).
-# 24 requests; the recording holds 22 entries, because the two requests rejected by the
-# security filter chain (401 without login, 403 for a USER creating a room) never reach
-# a controller and the agent records only dispatched requests. Keep every browser tab
-# away from the app while recording: a page load would add a GET / entry.
+# 31 requests; the recording holds 28 entries, because the three requests rejected by the
+# security filter chain (401 without login, 403 for a USER creating a room, 403 for a USER
+# calling the administrator API) never reach a controller and the agent records only
+# dispatched requests. Keep every browser tab away from the app while recording:
+# a page load would add a GET / entry.
 
 set -u
 BASE="${BASE_URL:-http://localhost:8080}"
@@ -73,16 +74,25 @@ echo "== bookings: quote"
 req 200 POST /api/bookings/quote '{"roomId":1,"date":"2027-03-17","startTime":"10:00","endTime":"12:00","attendees":4}' anna
 req 200 POST /api/bookings/quote '{"roomId":2,"date":"2027-03-17","startTime":"09:00","endTime":"14:00","attendees":10}' anna   # 5 h -> 10% discount
 
-echo "== bookings: create"
+echo "== bookings: create (a new booking is PENDING until the administrator confirms it)"
 req 201 POST /api/bookings '{"roomId":1,"date":"2027-03-17","startTime":"10:00","endTime":"12:00","attendees":4}' anna
 NEW_BOOKING=$(last_id)
 req 409 POST /api/bookings '{"roomId":2,"date":"2027-03-15","startTime":"10:00","endTime":"12:00","attendees":5}' jan    # overlaps booking 1 (R6)
 req 422 POST /api/bookings '{"roomId":3,"date":"2027-03-17","startTime":"08:00","endTime":"10:00","attendees":5}' jan    # Aula opens at 09:00 (R3)
 req 400 POST /api/bookings '{"roomId":1,"date":"2027-03-17","startTime":"14:00","endTime":"15:00","attendees":0}' anna   # @Min(1)
 
+echo "== administrator: pending bookings"
+req 403 GET  /api/admin/bookings/pending '' anna                     # USER may not use the admin API
+req 200 GET  '/api/admin/bookings?date=2027-03-17' '' admin          # all users' bookings of the day
+req 200 GET  /api/admin/bookings/pending '' admin                    # seed booking 5 and the new one
+req 200 POST /api/admin/bookings/5/confirm '' admin                  # PENDING -> CONFIRMED
+req 422 POST /api/admin/bookings/5/confirm '' admin                  # already confirmed
+req 200 POST /api/admin/bookings/5/cancel '' admin                   # administrator cancels without a fee
+req 404 POST /api/admin/bookings/999/confirm '' admin                # BookingNotFoundException
+
 echo "== bookings: cancel"
-req 403 POST "/api/bookings/${NEW_BOOKING:-5}/cancel" '' jan          # not the owner
-req 200 POST "/api/bookings/${NEW_BOOKING:-5}/cancel" '' anna         # more than 24 h ahead -> fee 0
+req 403 POST "/api/bookings/${NEW_BOOKING:-6}/cancel" '' jan          # not the owner
+req 200 POST "/api/bookings/${NEW_BOOKING:-6}/cancel" '' anna         # own pending booking -> fee 0
 req 422 POST /api/bookings/4/cancel '' piotr                         # already cancelled
 
 echo
@@ -96,7 +106,8 @@ echo "ok=$ok bad=$bad"
 # - capacity exceeded (R4)
 # - booking in the past (R5)
 # - wrong minute step and duration outside 1-8 h (R2)
-# - cancellation with the 50% fee (less than 24 h ahead)
-# - cancellation of a booking that has already started
+# - cancellation of a CONFIRMED booking by its owner (fee 0 or 50% depending on notice)
+# - cancellation of a booking that has already started (by the owner or the administrator)
+# - administrator cancelling an already cancelled booking
 # - room name already taken
 # - bookings made by the ADMIN account

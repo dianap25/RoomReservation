@@ -3,8 +3,10 @@
 Prosta aplikacja webowa do rezerwacji sal spotkań: REST API pod `/api/...` oraz jedna strona
 w przeglądarce (`index.html`, `app.js`, `style.css`), która korzysta wyłącznie z tego API.
 Dostęp do API wymaga zalogowania (HTTP Basic); każdy użytkownik widzi i anuluje tylko własne
-rezerwacje, a salami zarządza administrator. Dane trzymane są w bazie H2 w pamięci; przy każdym
-starcie wczytywane są dane startowe z `data.sql` (4 sale, 4 rezerwacje z marca 2027, 4 konta).
+rezerwacje. Nowa rezerwacja jest **oczekująca** i blokuje termin, a administrator ją potwierdza
+albo anuluje; administrator zarządza też salami. Dane trzymane są w bazie H2 w pamięci; przy
+każdym starcie wczytywane są dane startowe z `data.sql` (4 sale, 5 rezerwacji z marca 2027,
+w tym jedna oczekująca, 4 konta).
 
 Aplikacja jest pierwszą z aplikacji testowych do oceny narzędzia generującego testy
 (rozdział 6 pracy). Została napisana jak zwykła aplikacja biznesowa z tej dziedziny,
@@ -46,6 +48,9 @@ Hasła są zapisane w `data.sql` jako hasze BCrypt. Z `curl` loguje się opcją 
 - Rezerwacje: lista dnia, podgląd, `mine` i anulowanie dotyczą wyłącznie rezerwacji zalogowanego
   użytkownika; cudza rezerwacja → 403 (`Brak dostępu do tej rezerwacji`). Organizator nowej
   rezerwacji to zawsze zalogowany użytkownik (imię i nazwisko oraz e-mail z konta).
+- Administrator (`/api/admin/bookings`, inne role → 403) widzi rezerwacje wszystkich użytkowników
+  i listę oczekujących, potwierdza oczekujące i anuluje oczekujące lub potwierdzone, zawsze bez
+  opłaty.
 - Dostępność sal (`/availability`) pokazuje zajętość wszystkich potwierdzonych rezerwacji,
   bez danych ich organizatorów.
 
@@ -67,6 +72,10 @@ Wszystkie poza plikami strony wymagają zalogowania (401 bez poprawnych danych).
 | `POST /api/bookings/quote` | wycena bez zapisu (reguły R1–R4) | 200, 400, 404, 422 |
 | `POST /api/bookings` | nowa rezerwacja (reguły R1–R6) | 201, 400, 404, 409, 422 |
 | `POST /api/bookings/{id}/cancel` | anulowanie własnej rezerwacji | 200, 403, 404, 422 |
+| `GET /api/admin/bookings?date=YYYY-MM-DD` | rezerwacje dnia wszystkich użytkowników (ADMIN) | 200, 403 |
+| `GET /api/admin/bookings/pending` | oczekujące rezerwacje, po dacie i godzinie (ADMIN) | 200, 403 |
+| `POST /api/admin/bookings/{id}/confirm` | potwierdzenie oczekującej rezerwacji (ADMIN) | 200, 403, 404, 422 |
+| `POST /api/admin/bookings/{id}/cancel` | anulowanie rezerwacji bez opłaty (ADMIN) | 200, 403, 404, 422 |
 
 Każdy błąd ma postać `{"status": …, "error": …, "message": …}` bez znacznika czasu, także 401
 i 403 zwracane przez warstwę zabezpieczeń. Błędy walidacji (400) mają w `message` listę
@@ -87,9 +96,16 @@ Sprawdzane w tej kolejności, każda z własnym komunikatem:
 
 Wycena (`/quote`) sprawdza R1–R4, utworzenie rezerwacji R1–R6.
 
-Anulowanie: rezerwacja musi należeć do zalogowanego użytkownika, istnieć i być potwierdzona,
-a jej początek jeszcze nie minął. Przy anulowaniu co najmniej 24 h przed początkiem opłata
-wynosi 0, później 50% ceny. Odpowiedź zawiera opłatę i kwotę zwrotu.
+Statusy: nowa rezerwacja jest **oczekująca** (`PENDING`); administrator zmienia ją na
+**potwierdzoną** (`CONFIRMED`) albo **anulowaną** (`CANCELLED`). Oczekujące i potwierdzone
+rezerwacje blokują termin w sprawdzaniu nakładania (R6) i w siatce dostępności. Potwierdzić
+można tylko rezerwację oczekującą (inaczej 422).
+
+Anulowanie przez użytkownika: rezerwacja musi należeć do zalogowanego użytkownika, istnieć,
+nie być anulowana, a jej początek jeszcze nie minął. Oczekująca jest anulowana bez opłaty;
+przy potwierdzonej opłata wynosi 0 co najmniej 24 h przed początkiem, później 50% ceny.
+Anulowanie przez administratora jest zawsze bez opłaty. Odpowiedź zawiera opłatę i kwotę
+zwrotu.
 
 ## Cennik
 
@@ -123,10 +139,12 @@ Daty w danych startowych i w scenariuszu są stałe (marzec 2027), dzięki czemu
 
 ## Scenariusz pomiarowy
 
-Skrypt `eval/record-roombooking.sh` wykonuje 24 żądania do działającej aplikacji
+Skrypt `eval/record-roombooking.sh` wykonuje 31 żądań do działającej aplikacji
 (adres z `BASE_URL`, domyślnie `http://localhost:8080`), logując się kontami testowymi
-z tabeli powyżej (pierwsze żądanie celowo bez logowania → 401). Porównuje kody odpowiedzi
-z oczekiwanymi i kończy się linią `ok=<n> bad=<n>`. Nagranie robi agent narzędzia:
+z tabeli powyżej (pierwsze żądanie celowo bez logowania → 401), w tym blok administratora:
+lista dnia, oczekujące, potwierdzenie, ponowne potwierdzenie (422), anulowanie i 404.
+Porównuje kody odpowiedzi z oczekiwanymi i kończy się linią `ok=<n> bad=<n>`. Nagranie robi
+agent narzędzia:
 
 ```bash
 ./mvnw -DskipTests package testgen:record
@@ -139,10 +157,11 @@ bash eval/record-roombooking.sh
 ```
 
 Skrypt nie pobiera plików strony, więc w nagraniu są tylko żądania do API. Nagranie ma
-22 wpisy, nie 24: agent zapisuje tylko żądania, które dotarły do kontrolera, a dwa żądania
-odrzucone przez warstwę zabezpieczeń (401 bez logowania i 403 dla roli USER przy tworzeniu
-sali) kończą się w łańcuchu filtrów Spring Security. Podczas nagrywania żadna karta
-przeglądarki nie może wskazywać na aplikację, bo każde pobranie strony dopisze wpis `GET /`.
+28 wpisów, nie 31: agent zapisuje tylko żądania, które dotarły do kontrolera, a trzy żądania
+odrzucone przez warstwę zabezpieczeń (401 bez logowania, 403 dla roli USER przy tworzeniu
+sali i 403 dla roli USER w API administratora) kończą się w łańcuchu filtrów Spring Security.
+Podczas nagrywania żadna karta przeglądarki nie może wskazywać na aplikację, bo każde
+pobranie strony dopisze wpis `GET /`.
 Profil Mavena `eval` (`./mvnw -Peval …`) dodaje JaCoCo i PIT na potrzeby pomiarów;
 bez `-Peval` build pozostaje bez zmian.
 
@@ -154,8 +173,9 @@ Celowo nieodwiedzone w scenariuszu:
 - przekroczenie pojemności sali (R4),
 - rezerwacja w przeszłości (R5),
 - zły krok minut i czas trwania poza 1–8 h (R2),
-- anulowanie z opłatą 50%,
-- anulowanie rozpoczętej rezerwacji,
+- anulowanie potwierdzonej rezerwacji przez jej właściciela (opłata 0 albo 50%),
+- anulowanie rozpoczętej rezerwacji (przez właściciela lub administratora),
+- anulowanie przez administratora rezerwacji już anulowanej,
 - zajęta nazwa sali,
 - rezerwacje zakładane kontem administratora.
 
@@ -163,5 +183,5 @@ Celowo nieodwiedzone w scenariuszu:
 
 Po nagraniu scenariusza kod aplikacji jest zamrożony: każda późniejsza zmiana oznacza nową
 wersję aplikacji i powtórzenie wszystkich przebiegów pomiarowych (tak było z dodaniem
-logowania, które zastąpiło pierwszą, otwartą wersję API). Nie należy też uruchamiać
+logowania, a potem oczekujących rezerwacji i panelu administratora). Nie należy też uruchamiać
 `mvn clean`, bo kasuje `target/test-generation`.
