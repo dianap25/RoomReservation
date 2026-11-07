@@ -15,3 +15,13 @@ INSERT INTO booking (id, room_id, organizer_name, organizer_email, date, start_t
     (3, 1, 'Anna Nowak', 'anna.nowak@firma.pl', '2027-03-16', '10:00', '12:00', 6, 'CONFIRMED', 100.00, NULL, '2027-01-10T10:00:00Z'),
     (4, 3, 'Piotr Zieliński', 'piotr.zielinski@firma.pl', '2027-03-20', '10:00', '14:00', 60, 'CANCELLED', 1800.00, 0.00, '2027-01-10T10:00:00Z');
 ALTER TABLE booking ALTER COLUMN id RESTART WITH 5;
+
+/* Konta użytkowników (logowanie HTTP Basic, e-mail jako login). Hasła testowe:
+   anna.nowak@firma.pl haslo-anna, jan.kowalski@firma.pl haslo-jan,
+   piotr.zielinski@firma.pl haslo-piotr, admin@firma.pl haslo-admin. */
+INSERT INTO app_user (id, email, display_name, password_hash, role) VALUES
+    (1, 'anna.nowak@firma.pl', 'Anna Nowak', '$2a$10$MWmO6DmJRviqNsKYK4NiB.ZmASfenFTcTV.yU8Gu75adQAG/DRFeW', 'USER'),
+    (2, 'jan.kowalski@firma.pl', 'Jan Kowalski', '$2a$10$6NAJOC1kwg3waCKs./waWuZDP1n1yAKqQM1I.bzpRHX5lIp0sMxxK', 'USER'),
+    (3, 'piotr.zielinski@firma.pl', 'Piotr Zieliński', '$2a$10$DFrOKty9DJm7qXC2xxP6M.lMujvjrvjNUvZbs735ujTlmmjWcQJ16', 'USER'),
+    (4, 'admin@firma.pl', 'Administrator', '$2a$10$wJrhKfa.UlKXZx07gziTVuVbFVtGsTFjHW74JbKvTqTyTfvSWiPqO', 'ADMIN');
+ALTER TABLE app_user ALTER COLUMN id RESTART WITH 5;
