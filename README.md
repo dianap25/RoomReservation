@@ -2,8 +2,9 @@
 
 Prosta aplikacja webowa do rezerwacji sal spotkań: REST API pod `/api/...` oraz jedna strona
 w przeglądarce (`index.html`, `app.js`, `style.css`), która korzysta wyłącznie z tego API.
-Dane trzymane są w bazie H2 w pamięci; przy każdym starcie wczytywane są dane startowe
-z `data.sql` (4 sale i 4 rezerwacje z marca 2027).
+Dostęp do API wymaga zalogowania (HTTP Basic); każdy użytkownik widzi i anuluje tylko własne
+rezerwacje, a salami zarządza administrator. Dane trzymane są w bazie H2 w pamięci; przy każdym
+starcie wczytywane są dane startowe z `data.sql` (4 sale, 4 rezerwacje z marca 2027, 4 konta).
 
 Aplikacja jest pierwszą z aplikacji testowych do oceny narzędzia generującego testy
 (rozdział 6 pracy). Została napisana jak zwykła aplikacja biznesowa z tej dziedziny,
@@ -18,29 +19,58 @@ Wymagana jest Java 17 lub nowsza. Z katalogu projektu:
 ```
 
 Strona: <http://localhost:8080>. API: <http://localhost:8080/api/rooms>,
-<http://localhost:8080/api/bookings?date=2027-03-15>.
+<http://localhost:8080/api/bookings?date=2027-03-15> (po zalogowaniu).
 
 Zbudowanie jara bez testów: `./mvnw -DskipTests package` (plik `target/roombooking-0.0.1-SNAPSHOT.jar`).
 
+### Konta testowe
+
+| E-mail (login) | Hasło | Rola |
+|---|---|---|
+| `anna.nowak@firma.pl` | `haslo-anna` | USER |
+| `jan.kowalski@firma.pl` | `haslo-jan` | USER |
+| `piotr.zielinski@firma.pl` | `haslo-piotr` | USER |
+| `admin@firma.pl` | `haslo-admin` | ADMIN |
+
+Hasła są zapisane w `data.sql` jako hasze BCrypt. Z `curl` loguje się opcją `-u`, np.
+`curl -u anna.nowak@firma.pl:haslo-anna http://localhost:8080/api/me`.
+
+## Logowanie i uprawnienia
+
+- API jest bezstanowe: każde żądanie niesie nagłówek `Authorization: Basic …`; nie ma sesji
+  ani cookie. Pliki strony (`/`, `index.html`, `app.js`, `style.css`) są publiczne.
+- Brak lub złe dane logowania → 401 (`Wymagane logowanie` albo `Nieprawidłowy e-mail lub hasło`),
+  bez nagłówka `WWW-Authenticate`, żeby przeglądarka nie otwierała własnego okna.
+- Tworzenie i edycja sal (`POST`, `PUT /api/rooms`) wymaga roli ADMIN, inaczej 403
+  (`Brak uprawnień do tej operacji`).
+- Rezerwacje: lista dnia, podgląd, `mine` i anulowanie dotyczą wyłącznie rezerwacji zalogowanego
+  użytkownika; cudza rezerwacja → 403 (`Brak dostępu do tej rezerwacji`). Organizator nowej
+  rezerwacji to zawsze zalogowany użytkownik (imię i nazwisko oraz e-mail z konta).
+- Dostępność sal (`/availability`) pokazuje zajętość wszystkich potwierdzonych rezerwacji,
+  bez danych ich organizatorów.
+
 ## Punkty końcowe
+
+Wszystkie poza plikami strony wymagają zalogowania (401 bez poprawnych danych).
 
 | Metoda i ścieżka | Opis | Kody odpowiedzi |
 |---|---|---|
+| `GET /api/me` | zalogowany użytkownik (e-mail, nazwa, rola) | 200 |
 | `GET /api/rooms` | lista sal posortowana po nazwie | 200 |
 | `GET /api/rooms/{id}` | jedna sala | 200, 404 |
-| `POST /api/rooms` | nowa sala | 201, 400, 422 |
-| `PUT /api/rooms/{id}` | zmiana sali | 200, 400, 404, 422 |
+| `POST /api/rooms` | nowa sala (tylko ADMIN) | 201, 400, 403, 422 |
+| `PUT /api/rooms/{id}` | zmiana sali (tylko ADMIN) | 200, 400, 403, 404, 422 |
 | `GET /api/rooms/{id}/availability?date=YYYY-MM-DD` | dostępność sali co 30 minut | 200, 404 |
-| `GET /api/bookings?date=YYYY-MM-DD&roomId=` | rezerwacje dnia (`roomId` opcjonalny) | 200 |
-| `GET /api/bookings/{id}` | jedna rezerwacja | 200, 404 |
-| `GET /api/bookings/by-organizer?email=` | rezerwacje organizatora | 200 |
+| `GET /api/bookings?date=YYYY-MM-DD&roomId=` | własne rezerwacje dnia (`roomId` opcjonalny) | 200 |
+| `GET /api/bookings/mine` | wszystkie własne rezerwacje | 200 |
+| `GET /api/bookings/{id}` | jedna własna rezerwacja | 200, 403, 404 |
 | `POST /api/bookings/quote` | wycena bez zapisu (reguły R1–R4) | 200, 400, 404, 422 |
 | `POST /api/bookings` | nowa rezerwacja (reguły R1–R6) | 201, 400, 404, 409, 422 |
-| `POST /api/bookings/{id}/cancel` | anulowanie rezerwacji | 200, 404, 422 |
+| `POST /api/bookings/{id}/cancel` | anulowanie własnej rezerwacji | 200, 403, 404, 422 |
 
-Każdy błąd ma postać `{"status": …, "error": …, "message": …}` bez znacznika czasu.
-Błędy walidacji (400) mają w `message` listę `pole: komunikat` posortowaną po nazwie pola
-i rozdzieloną `; `.
+Każdy błąd ma postać `{"status": …, "error": …, "message": …}` bez znacznika czasu, także 401
+i 403 zwracane przez warstwę zabezpieczeń. Błędy walidacji (400) mają w `message` listę
+`pole: komunikat` posortowaną po nazwie pola i rozdzieloną `; `.
 
 ## Reguły rezerwacji
 
@@ -57,9 +87,9 @@ Sprawdzane w tej kolejności, każda z własnym komunikatem:
 
 Wycena (`/quote`) sprawdza R1–R4, utworzenie rezerwacji R1–R6.
 
-Anulowanie: rezerwacja musi istnieć i być potwierdzona, a jej początek jeszcze nie minął.
-Przy anulowaniu co najmniej 24 h przed początkiem opłata wynosi 0, później 50% ceny.
-Odpowiedź zawiera opłatę i kwotę zwrotu.
+Anulowanie: rezerwacja musi należeć do zalogowanego użytkownika, istnieć i być potwierdzona,
+a jej początek jeszcze nie minął. Przy anulowaniu co najmniej 24 h przed początkiem opłata
+wynosi 0, później 50% ceny. Odpowiedź zawiera opłatę i kwotę zwrotu.
 
 ## Cennik
 
@@ -80,11 +110,12 @@ Wszystkie kwoty mają dwa miejsca po przecinku (zaokrąglenie `HALF_UP`).
 | Pakiet bazowy | `pl.meetings.roombooking` |
 | Lombok | nie (rekordy, ręczne gettery i settery) |
 | Dane | Spring Data JPA + H2 w pamięci, `data.sql` |
-| Układ pakietów | według funkcji: `room`, `booking`, `pricing`, `common` |
+| Układ pakietów | według funkcji: `room`, `booking`, `pricing`, `user`, `security`, `common` |
 | Serwisy | interfejs + klasa `…Impl` |
 | Wstrzykiwanie | przez konstruktor |
 | Obsługa błędów | metody `@ExceptionHandler` w każdym kontrolerze, odpowiedź `ResponseEntity<ErrorResponse>` |
 | Walidacja | Bean Validation |
+| Zabezpieczenia | Spring Security, HTTP Basic bez sesji, hasła BCrypt, role USER i ADMIN |
 | Bieżący czas | tylko przez `TimeProvider` (bean `Clock`) |
 
 Daty w danych startowych i w scenariuszu są stałe (marzec 2027), dzięki czemu
@@ -92,8 +123,9 @@ Daty w danych startowych i w scenariuszu są stałe (marzec 2027), dzięki czemu
 
 ## Scenariusz pomiarowy
 
-Skrypt `eval/record-roombooking.sh` wykonuje 18 żądań do działającej aplikacji
-(adres z `BASE_URL`, domyślnie `http://localhost:8080`), porównuje kody odpowiedzi
+Skrypt `eval/record-roombooking.sh` wykonuje 24 żądania do działającej aplikacji
+(adres z `BASE_URL`, domyślnie `http://localhost:8080`), logując się kontami testowymi
+z tabeli powyżej (pierwsze żądanie celowo bez logowania → 401). Porównuje kody odpowiedzi
 z oczekiwanymi i kończy się linią `ok=<n> bad=<n>`. Nagranie robi agent narzędzia:
 
 ```bash
@@ -106,24 +138,30 @@ a w drugim terminalu:
 bash eval/record-roombooking.sh
 ```
 
-Skrypt nie pobiera plików strony, więc w nagraniu są tylko żądania do API.
+Skrypt nie pobiera plików strony, więc w nagraniu są tylko żądania do API. Nagranie ma
+22 wpisy, nie 24: agent zapisuje tylko żądania, które dotarły do kontrolera, a dwa żądania
+odrzucone przez warstwę zabezpieczeń (401 bez logowania i 403 dla roli USER przy tworzeniu
+sali) kończą się w łańcuchu filtrów Spring Security. Podczas nagrywania żadna karta
+przeglądarki nie może wskazywać na aplikację, bo każde pobranie strony dopisze wpis `GET /`.
 Profil Mavena `eval` (`./mvnw -Peval …`) dodaje JaCoCo i PIT na potrzeby pomiarów;
 bez `-Peval` build pozostaje bez zmian.
 
 Celowo nieodwiedzone w scenariuszu:
 
 - `PUT /api/rooms/{id}`,
-- `GET /api/bookings/by-organizer`,
+- złe hasło (401 `Nieprawidłowy e-mail lub hasło`),
 - dopłata weekendowa,
 - przekroczenie pojemności sali (R4),
 - rezerwacja w przeszłości (R5),
 - zły krok minut i czas trwania poza 1–8 h (R2),
 - anulowanie z opłatą 50%,
 - anulowanie rozpoczętej rezerwacji,
-- zajęta nazwa sali.
+- zajęta nazwa sali,
+- rezerwacje zakładane kontem administratora.
 
 ## Zamrożenie kodu
 
 Po nagraniu scenariusza kod aplikacji jest zamrożony: każda późniejsza zmiana oznacza nową
-wersję aplikacji i powtórzenie wszystkich przebiegów pomiarowych. Nie należy też uruchamiać
+wersję aplikacji i powtórzenie wszystkich przebiegów pomiarowych (tak było z dodaniem
+logowania, które zastąpiło pierwszą, otwartą wersję API). Nie należy też uruchamiać
 `mvn clean`, bo kasuje `target/test-generation`.

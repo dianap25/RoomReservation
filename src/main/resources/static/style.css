@@ -19,6 +19,10 @@
     box-sizing: border-box;
 }
 
+[hidden] {
+    display: none !important;
+}
+
 body {
     margin: 0;
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -272,4 +276,62 @@ button[type="submit"] {
     main {
         grid-template-columns: 1fr;
     }
+}
+
+.header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.header-row h1 {
+    margin: 0;
+}
+
+.user-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--muted);
+}
+
+.user-bar button,
+.login-panel button[type="submit"] {
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel);
+    cursor: pointer;
+}
+
+.login-panel {
+    max-width: 420px;
+    margin: 16px auto;
+}
+
+.login-panel form {
+    grid-template-columns: 1fr;
+}
+
+.login-panel button[type="submit"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-text);
+}
+
+#app {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 16px 16px;
+}
+
+#app main {
+    padding: 0;
+    margin-top: 16px;
+}
+
+#app .toolbar {
+    margin-top: 4px;
 }

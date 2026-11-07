@@ -1,13 +1,24 @@
 (function () {
     'use strict';
 
+    const AUTH_STORAGE_KEY = 'roombooking.auth';
+
     const state = {
+        auth: null,
+        user: null,
         date: '2027-03-15',
         roomId: null,
         rooms: []
     };
 
     const el = {
+        userBar: document.getElementById('user-bar'),
+        userLabel: document.getElementById('user-label'),
+        logout: document.getElementById('logout'),
+        loginPanel: document.getElementById('login-panel'),
+        loginForm: document.getElementById('login-form'),
+        loginMessage: document.getElementById('login-message'),
+        app: document.getElementById('app'),
         date: document.getElementById('date'),
         rooms: document.getElementById('rooms'),
         roomsMessage: document.getElementById('rooms-message'),
@@ -27,8 +38,25 @@
         CANCELLED: 'Anulowana'
     };
 
+    const ROLE_LABELS = {
+        USER: 'użytkownik',
+        ADMIN: 'administrator'
+    };
+
+    // --- pomocnicze ------------------------------------------------------
+
+    function toBase64Utf8(text) {
+        const bytes = new TextEncoder().encode(text);
+        let binary = '';
+        bytes.forEach(function (b) { binary += String.fromCharCode(b); });
+        return btoa(binary);
+    }
+
     async function api(method, path, body) {
         const options = { method: method, headers: {} };
+        if (state.auth) {
+            options.headers['Authorization'] = state.auth;
+        }
         if (body !== undefined) {
             options.headers['Content-Type'] = 'application/json';
             options.body = JSON.stringify(body);
@@ -36,6 +64,9 @@
         const response = await fetch(path, options);
         const text = await response.text();
         const data = text ? JSON.parse(text) : null;
+        if (response.status === 401 && state.user) {
+            logout('Sesja wygasła, zaloguj się ponownie.');
+        }
         return { ok: response.ok, status: response.status, data: data };
     }
 
@@ -87,6 +118,90 @@
         return state.rooms.find(function (room) { return room.id === state.roomId; }) || null;
     }
 
+    // --- logowanie -------------------------------------------------------
+
+    function readStoredAuth() {
+        try {
+            return sessionStorage.getItem(AUTH_STORAGE_KEY);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function storeAuth(value) {
+        try {
+            if (value) {
+                sessionStorage.setItem(AUTH_STORAGE_KEY, value);
+            } else {
+                sessionStorage.removeItem(AUTH_STORAGE_KEY);
+            }
+        } catch (e) {
+            // brak sessionStorage: logowanie działa do przeładowania strony
+        }
+    }
+
+    async function login(event) {
+        event.preventDefault();
+        const data = new FormData(el.loginForm);
+        const email = String(data.get('email') || '').trim();
+        const password = String(data.get('password') || '');
+        if (!email || !password) {
+            showMessage(el.loginMessage, 'Podaj e-mail i hasło.', 'error');
+            return;
+        }
+        await signIn('Basic ' + toBase64Utf8(email + ':' + password));
+    }
+
+    async function signIn(authHeader) {
+        state.auth = authHeader;
+        let result;
+        try {
+            result = await api('GET', '/api/me');
+        } catch (e) {
+            state.auth = null;
+            showMessage(el.loginMessage, 'Nie udało się połączyć z serwerem.', 'error');
+            return;
+        }
+        if (!result.ok) {
+            state.auth = null;
+            showMessage(el.loginMessage, errorText(result), 'error');
+            return;
+        }
+        state.user = result.data;
+        storeAuth(authHeader);
+        showMessage(el.loginMessage, '');
+        el.loginForm.reset();
+        renderUser();
+        el.loginPanel.hidden = true;
+        el.app.hidden = false;
+        loadRooms();
+        loadBookings();
+    }
+
+    function logout(message) {
+        state.auth = null;
+        state.user = null;
+        state.roomId = null;
+        state.rooms = [];
+        storeAuth(null);
+        el.app.hidden = true;
+        el.loginPanel.hidden = false;
+        el.userBar.hidden = true;
+        clear(el.rooms);
+        clear(el.availability);
+        clear(el.bookings);
+        clear(el.quote);
+        showMessage(el.formMessage, '');
+        showMessage(el.bookingsMessage, '');
+        showMessage(el.loginMessage, message || '', 'info');
+    }
+
+    function renderUser() {
+        el.userLabel.textContent = 'Zalogowano jako ' + state.user.displayName +
+            ' (' + (ROLE_LABELS[state.user.role] || state.user.role) + ')';
+        el.userBar.hidden = false;
+    }
+
     // --- sale -----------------------------------------------------------
 
     async function loadRooms() {
@@ -125,7 +240,7 @@
         renderRooms();
         showMessage(el.formMessage, '');
         loadAvailability();
-        refreshQuote();
+        requestQuote();
     }
 
     // --- dostępność -----------------------------------------------------
@@ -171,26 +286,11 @@
         const data = new FormData(el.form);
         return {
             roomId: state.roomId,
-            organizerName: data.get('organizerName'),
-            organizerEmail: data.get('organizerEmail'),
             date: state.date,
             startTime: data.get('startTime') || null,
             endTime: data.get('endTime') || null,
             attendees: Number(data.get('attendees')) || 0
         };
-    }
-
-    function formTouched() {
-        const data = new FormData(el.form);
-        return Boolean(data.get('organizerName') || data.get('organizerEmail'));
-    }
-
-    function refreshQuote() {
-        if (formTouched()) {
-            requestQuote();
-        } else {
-            clear(el.quote);
-        }
     }
 
     let quoteTimer = null;
@@ -262,10 +362,10 @@
         loadBookings();
     }
 
-    // --- rezerwacje dnia ------------------------------------------------
+    // --- moje rezerwacje ------------------------------------------------
 
     async function loadBookings() {
-        el.bookingsTitle.textContent = 'Rezerwacje: ' + dateLabel(state.date);
+        el.bookingsTitle.textContent = 'Moje rezerwacje: ' + dateLabel(state.date);
         let result;
         try {
             result = await api('GET', '/api/bookings?date=' + state.date);
@@ -283,15 +383,14 @@
     function renderBookings(bookings) {
         clear(el.bookings);
         if (bookings.length === 0) {
-            el.bookings.appendChild(element('li', 'empty', 'Brak rezerwacji w tym dniu.'));
+            el.bookings.appendChild(element('li', 'empty', 'Brak Twoich rezerwacji w tym dniu.'));
             return;
         }
         bookings.forEach(function (booking) {
             const item = element('li', 'booking ' + booking.status.toLowerCase());
             item.appendChild(element('div', 'booking-head',
                 booking.roomName + ' · ' + time(booking.startTime) + '–' + time(booking.endTime)));
-            item.appendChild(element('div', 'booking-organizer',
-                booking.organizerName + ' (' + booking.organizerEmail + '), ' + booking.attendees + ' os.'));
+            item.appendChild(element('div', 'booking-organizer', booking.attendees + ' os.'));
             item.appendChild(element('div', 'booking-status',
                 STATUS_LABELS[booking.status] + ' · ' + money(booking.totalPrice)));
             if (booking.status === 'CONFIRMED') {
@@ -327,6 +426,9 @@
 
     // --- start ----------------------------------------------------------
 
+    el.loginForm.addEventListener('submit', login);
+    el.logout.addEventListener('click', function () { logout(''); });
+
     el.date.addEventListener('change', function () {
         if (!el.date.value) {
             return;
@@ -335,12 +437,16 @@
         showMessage(el.bookingsMessage, '');
         loadAvailability();
         loadBookings();
-        refreshQuote();
+        if (state.roomId) {
+            requestQuote();
+        }
     });
 
     el.form.addEventListener('input', scheduleQuote);
     el.form.addEventListener('submit', submitBooking);
 
-    loadRooms();
-    loadBookings();
+    const stored = readStoredAuth();
+    if (stored) {
+        signIn(stored);
+    }
 })();
