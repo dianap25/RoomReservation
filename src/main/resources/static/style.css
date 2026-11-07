@@ -335,3 +335,33 @@ button[type="submit"] {
 #app .toolbar {
     margin-top: 4px;
 }
+
+.admin-panel {
+    margin-top: 16px;
+}
+
+.admin-panel h3 {
+    margin: 8px 0;
+    font-size: 1rem;
+}
+
+.admin-lists {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 24px;
+}
+
+.booking.pending .booking-status {
+    color: #92400e;
+}
+
+.confirm {
+    margin-top: 6px;
+    margin-right: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--free-text);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--free-text);
+    cursor: pointer;
+}

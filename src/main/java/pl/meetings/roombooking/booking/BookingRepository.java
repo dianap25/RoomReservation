@@ -1,6 +1,7 @@
 package pl.meetings.roombooking.booking;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,5 +15,9 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 
     List<Booking> findByOrganizerEmailIgnoreCaseOrderByDateAscStartTimeAsc(String organizerEmail);
 
-    List<Booking> findByRoomIdAndDateAndStatus(Long roomId, LocalDate date, BookingStatus status);
+    List<Booking> findByRoomIdAndDateAndStatusIn(Long roomId, LocalDate date, Collection<BookingStatus> statuses);
+
+    List<Booking> findByDateOrderByStartTime(LocalDate date);
+
+    List<Booking> findByStatusOrderByDateAscStartTimeAsc(BookingStatus status);
 }

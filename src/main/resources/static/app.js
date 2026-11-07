@@ -30,10 +30,16 @@
         formMessage: document.getElementById('form-message'),
         bookingsTitle: document.getElementById('bookings-title'),
         bookingsMessage: document.getElementById('bookings-message'),
-        bookings: document.getElementById('bookings')
+        bookings: document.getElementById('bookings'),
+        adminPanel: document.getElementById('admin-panel'),
+        adminMessage: document.getElementById('admin-message'),
+        adminPending: document.getElementById('admin-pending'),
+        adminDayTitle: document.getElementById('admin-day-title'),
+        adminDay: document.getElementById('admin-day')
     };
 
     const STATUS_LABELS = {
+        PENDING: 'Oczekująca',
         CONFIRMED: 'Potwierdzona',
         CANCELLED: 'Anulowana'
     };
@@ -118,6 +124,10 @@
         return state.rooms.find(function (room) { return room.id === state.roomId; }) || null;
     }
 
+    function isAdmin() {
+        return Boolean(state.user) && state.user.role === 'ADMIN';
+    }
+
     // --- logowanie -------------------------------------------------------
 
     function readStoredAuth() {
@@ -174,8 +184,10 @@
         renderUser();
         el.loginPanel.hidden = true;
         el.app.hidden = false;
+        el.adminPanel.hidden = !isAdmin();
         loadRooms();
         loadBookings();
+        loadAdminLists();
     }
 
     function logout(message) {
@@ -187,12 +199,16 @@
         el.app.hidden = true;
         el.loginPanel.hidden = false;
         el.userBar.hidden = true;
+        el.adminPanel.hidden = true;
         clear(el.rooms);
         clear(el.availability);
         clear(el.bookings);
         clear(el.quote);
+        clear(el.adminPending);
+        clear(el.adminDay);
         showMessage(el.formMessage, '');
         showMessage(el.bookingsMessage, '');
+        showMessage(el.adminMessage, '');
         showMessage(el.loginMessage, message || '', 'info');
     }
 
@@ -356,10 +372,12 @@
         const booking = result.data;
         showMessage(el.formMessage,
             'Zarezerwowano salę ' + booking.roomName + ' w godzinach ' +
-            time(booking.startTime) + '–' + time(booking.endTime) + ', cena ' + money(booking.totalPrice) + '.',
+            time(booking.startTime) + '–' + time(booking.endTime) + ', cena ' + money(booking.totalPrice) +
+            '. Rezerwacja czeka na potwierdzenie przez administratora.',
             'success');
         loadAvailability();
         loadBookings();
+        loadAdminLists();
     }
 
     // --- moje rezerwacje ------------------------------------------------
@@ -393,7 +411,7 @@
             item.appendChild(element('div', 'booking-organizer', booking.attendees + ' os.'));
             item.appendChild(element('div', 'booking-status',
                 STATUS_LABELS[booking.status] + ' · ' + money(booking.totalPrice)));
-            if (booking.status === 'CONFIRMED') {
+            if (booking.status === 'PENDING' || booking.status === 'CONFIRMED') {
                 const cancel = element('button', 'cancel', 'Anuluj');
                 cancel.type = 'button';
                 cancel.addEventListener('click', function () { cancelBooking(booking); });
@@ -422,6 +440,111 @@
             'success');
         loadBookings();
         loadAvailability();
+        loadAdminLists();
+    }
+
+    // --- panel administratora -------------------------------------------
+
+    async function loadAdminLists() {
+        if (!isAdmin()) {
+            return;
+        }
+        el.adminDayTitle.textContent = 'Rezerwacje dnia ' + dateLabel(state.date) + ' (wszyscy użytkownicy)';
+        let pending;
+        let day;
+        try {
+            pending = await api('GET', '/api/admin/bookings/pending');
+            day = await api('GET', '/api/admin/bookings?date=' + state.date);
+        } catch (e) {
+            showMessage(el.adminMessage, 'Nie udało się pobrać rezerwacji.', 'error');
+            return;
+        }
+        if (!pending.ok) {
+            showMessage(el.adminMessage, errorText(pending), 'error');
+            return;
+        }
+        if (!day.ok) {
+            showMessage(el.adminMessage, errorText(day), 'error');
+            return;
+        }
+        renderAdminList(el.adminPending, pending.data, 'Brak oczekujących próśb.', true);
+        renderAdminList(el.adminDay, day.data, 'Brak rezerwacji w tym dniu.', false);
+    }
+
+    function renderAdminList(list, bookings, emptyText, withDate) {
+        clear(list);
+        if (bookings.length === 0) {
+            list.appendChild(element('li', 'empty', emptyText));
+            return;
+        }
+        bookings.forEach(function (booking) {
+            const item = element('li', 'booking ' + booking.status.toLowerCase());
+            item.appendChild(element('div', 'booking-head',
+                (withDate ? dateLabel(booking.date) + ' · ' : '') + booking.roomName + ' · ' +
+                time(booking.startTime) + '–' + time(booking.endTime)));
+            item.appendChild(element('div', 'booking-organizer',
+                booking.organizerName + ' (' + booking.organizerEmail + '), ' + booking.attendees + ' os.'));
+            item.appendChild(element('div', 'booking-status',
+                STATUS_LABELS[booking.status] + ' · ' + money(booking.totalPrice)));
+            if (booking.status === 'PENDING') {
+                const confirm = element('button', 'confirm', 'Potwierdź');
+                confirm.type = 'button';
+                confirm.addEventListener('click', function () { adminConfirm(booking); });
+                item.appendChild(confirm);
+            }
+            if (booking.status === 'PENDING' || booking.status === 'CONFIRMED') {
+                const cancel = element('button', 'cancel', 'Anuluj');
+                cancel.type = 'button';
+                cancel.addEventListener('click', function () { adminCancel(booking); });
+                item.appendChild(cancel);
+            }
+            list.appendChild(item);
+        });
+    }
+
+    async function adminConfirm(booking) {
+        let result;
+        try {
+            result = await api('POST', '/api/admin/bookings/' + booking.id + '/confirm');
+        } catch (e) {
+            showMessage(el.adminMessage, 'Nie udało się potwierdzić rezerwacji.', 'error');
+            return;
+        }
+        if (!result.ok) {
+            showMessage(el.adminMessage, errorText(result), 'error');
+            return;
+        }
+        showMessage(el.adminMessage,
+            'Potwierdzono rezerwację: ' + booking.organizerName + ', ' + booking.roomName + ', ' +
+            dateLabel(booking.date) + ' ' + time(booking.startTime) + '–' + time(booking.endTime) + '.',
+            'success');
+        refreshAfterAdminAction();
+    }
+
+    async function adminCancel(booking) {
+        let result;
+        try {
+            result = await api('POST', '/api/admin/bookings/' + booking.id + '/cancel');
+        } catch (e) {
+            showMessage(el.adminMessage, 'Nie udało się anulować rezerwacji.', 'error');
+            return;
+        }
+        if (!result.ok) {
+            showMessage(el.adminMessage, errorText(result), 'error');
+            return;
+        }
+        showMessage(el.adminMessage,
+            'Anulowano rezerwację: ' + booking.organizerName + ', ' + booking.roomName + ', ' +
+            dateLabel(booking.date) + ' ' + time(booking.startTime) + '–' + time(booking.endTime) +
+            '. Zwrot: ' + money(result.data.refund) + '.',
+            'success');
+        refreshAfterAdminAction();
+    }
+
+    function refreshAfterAdminAction() {
+        loadAdminLists();
+        loadBookings();
+        loadAvailability();
     }
 
     // --- start ----------------------------------------------------------
@@ -435,8 +558,10 @@
         }
         state.date = el.date.value;
         showMessage(el.bookingsMessage, '');
+        showMessage(el.adminMessage, '');
         loadAvailability();
         loadBookings();
+        loadAdminLists();
         if (state.roomId) {
             requestQuote();
         }

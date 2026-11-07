@@ -13,8 +13,9 @@ INSERT INTO booking (id, room_id, organizer_name, organizer_email, date, start_t
     (1, 2, 'Anna Nowak', 'anna.nowak@firma.pl', '2027-03-15', '09:00', '11:00', 12, 'CONFIRMED', 240.00, NULL, '2027-01-10T10:00:00Z'),
     (2, 2, 'Jan Kowalski', 'jan.kowalski@firma.pl', '2027-03-15', '13:00', '18:00', 15, 'CONFIRMED', 540.00, NULL, '2027-01-10T10:00:00Z'),
     (3, 1, 'Anna Nowak', 'anna.nowak@firma.pl', '2027-03-16', '10:00', '12:00', 6, 'CONFIRMED', 100.00, NULL, '2027-01-10T10:00:00Z'),
-    (4, 3, 'Piotr Zieliński', 'piotr.zielinski@firma.pl', '2027-03-20', '10:00', '14:00', 60, 'CANCELLED', 1800.00, 0.00, '2027-01-10T10:00:00Z');
-ALTER TABLE booking ALTER COLUMN id RESTART WITH 5;
+    (4, 3, 'Piotr Zieliński', 'piotr.zielinski@firma.pl', '2027-03-20', '10:00', '14:00', 60, 'CANCELLED', 1800.00, 0.00, '2027-01-10T10:00:00Z'),
+    (5, 1, 'Jan Kowalski', 'jan.kowalski@firma.pl', '2027-03-18', '14:00', '16:00', 5, 'PENDING', 100.00, NULL, '2027-01-10T10:00:00Z');
+ALTER TABLE booking ALTER COLUMN id RESTART WITH 6;
 
 /* Konta użytkowników (logowanie HTTP Basic, e-mail jako login). Hasła testowe:
    anna.nowak@firma.pl haslo-anna, jan.kowalski@firma.pl haslo-jan,

@@ -34,6 +34,7 @@ public class BookingServiceImpl implements BookingService {
     private static final int SLOT_MINUTES = 30;
     private static final Duration FREE_CANCELLATION_NOTICE = Duration.ofHours(24);
     private static final BigDecimal LATE_CANCELLATION_FEE_RATE = new BigDecimal("0.50");
+    private static final List<BookingStatus> BLOCKING_STATUSES = List.of(BookingStatus.PENDING, BookingStatus.CONFIRMED);
 
     private final BookingRepository bookingRepository;
     private final RoomRepository roomRepository;
@@ -91,7 +92,7 @@ public class BookingServiceImpl implements BookingService {
         AppUser organizer = userService.getByEmail(ownerEmail);
         Booking booking = new Booking(room, organizer.getDisplayName(), organizer.getEmail(),
                 request.date(), request.startTime(), request.endTime(), request.attendees(),
-                BookingStatus.CONFIRMED, quote.totalPrice(), timeProvider.now());
+                BookingStatus.PENDING, quote.totalPrice(), timeProvider.now());
         return BookingResponse.from(bookingRepository.save(booking));
     }
 
@@ -108,7 +109,8 @@ public class BookingServiceImpl implements BookingService {
             throw new BookingRuleViolationException("Nie można anulować rozpoczętej rezerwacji");
         }
         BigDecimal fee = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-        if (Duration.between(now, start).compareTo(FREE_CANCELLATION_NOTICE) < 0) {
+        if (booking.getStatus() == BookingStatus.CONFIRMED
+                && Duration.between(now, start).compareTo(FREE_CANCELLATION_NOTICE) < 0) {
             fee = booking.getTotalPrice().multiply(LATE_CANCELLATION_FEE_RATE).setScale(2, RoundingMode.HALF_UP);
         }
         booking.setStatus(BookingStatus.CANCELLED);
@@ -121,13 +123,13 @@ public class BookingServiceImpl implements BookingService {
     @Transactional(readOnly = true)
     public List<AvailabilitySlot> availability(Long roomId, LocalDate date) {
         Room room = findRoom(roomId);
-        List<Booking> confirmed = bookingRepository.findByRoomIdAndDateAndStatus(roomId, date, BookingStatus.CONFIRMED);
+        List<Booking> blocking = bookingRepository.findByRoomIdAndDateAndStatusIn(roomId, date, BLOCKING_STATUSES);
         long slotCount = Duration.between(room.getOpensAt(), room.getClosesAt()).toMinutes() / SLOT_MINUTES;
         List<AvailabilitySlot> slots = new ArrayList<>();
         for (long i = 0; i < slotCount; i++) {
             LocalTime start = room.getOpensAt().plusMinutes(i * SLOT_MINUTES);
             LocalTime end = start.plusMinutes(SLOT_MINUTES);
-            boolean free = confirmed.stream().noneMatch(booking -> overlaps(booking, start, end));
+            boolean free = blocking.stream().noneMatch(booking -> overlaps(booking, start, end));
             slots.add(new AvailabilitySlot(start, end, free));
         }
         return slots;
@@ -201,9 +203,9 @@ public class BookingServiceImpl implements BookingService {
     }
 
     private void validateNoOverlap(Room room, BookingRequest request) {
-        List<Booking> confirmed = bookingRepository.findByRoomIdAndDateAndStatus(
-                room.getId(), request.date(), BookingStatus.CONFIRMED);
-        for (Booking existing : confirmed) {
+        List<Booking> blocking = bookingRepository.findByRoomIdAndDateAndStatusIn(
+                room.getId(), request.date(), BLOCKING_STATUSES);
+        for (Booking existing : blocking) {
             if (overlaps(existing, request.startTime(), request.endTime())) {
                 throw new BookingConflictException(String.format(
                         "Sala jest już zarezerwowana w godzinach %s–%s",

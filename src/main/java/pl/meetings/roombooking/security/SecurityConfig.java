@@ -24,6 +24,7 @@ public class SecurityConfig {
                         .requestMatchers("/", "/index.html", "/app.js", "/style.css").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/rooms").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/rooms/*").hasRole("ADMIN")
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .httpBasic(basic -> basic.authenticationEntryPoint(entryPoint))
                 .exceptionHandling(handling -> handling

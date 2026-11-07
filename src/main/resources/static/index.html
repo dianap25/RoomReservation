@@ -68,6 +68,21 @@
             <ul id="bookings" class="bookings"></ul>
         </aside>
     </main>
+
+    <section id="admin-panel" class="column admin-panel" hidden>
+        <h2>Panel administratora</h2>
+        <div id="admin-message" class="message" role="status"></div>
+        <div class="admin-lists">
+            <div>
+                <h3>Oczekujące prośby</h3>
+                <ul id="admin-pending" class="bookings"></ul>
+            </div>
+            <div>
+                <h3 id="admin-day-title">Rezerwacje dnia (wszyscy użytkownicy)</h3>
+                <ul id="admin-day" class="bookings"></ul>
+            </div>
+        </div>
+    </section>
 </div>
 
 <script src="app.js"></script>
