@@ -60,4 +60,101 @@
 		</plugins>
 	</build>
 
+	<!-- Measurements for the thesis (eval/); without -Peval the build stays as it is. -->
+	<profiles>
+		<profile>
+			<id>eval</id>
+			<properties>
+				<!-- Latest on Maven Central, checked 2026-11-01. -->
+				<jacoco.version>0.8.16</jacoco.version>
+				<pitest.version>1.30.1</pitest.version>
+				<!-- Does not declare JUnit 6, checked by a PIT run on JUnit 6.0.2. -->
+				<pitest.junit5.version>1.2.3</pitest.junit5.version>
+				<!-- Generated tests fail by design; a failure must not stop the JaCoCo report. -->
+				<maven.test.failure.ignore>true</maven.test.failure.ignore>
+			</properties>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.jacoco</groupId>
+						<artifactId>jacoco-maven-plugin</artifactId>
+						<version>${jacoco.version}</version>
+						<executions>
+							<execution>
+								<id>prepare-agent</id>
+								<goals>
+									<goal>prepare-agent</goal>
+								</goals>
+								<configuration>
+									<!-- target/ survives between configurations; their coverage must not add up. -->
+									<append>false</append>
+								</configuration>
+							</execution>
+							<execution>
+								<id>report</id>
+								<phase>test</phase>
+								<goals>
+									<goal>report</goal>
+								</goals>
+							</execution>
+						</executions>
+					</plugin>
+					<!-- Not bound to a phase: mvn -Peval pitest:mutationCoverage -->
+					<plugin>
+						<groupId>org.pitest</groupId>
+						<artifactId>pitest-maven</artifactId>
+						<version>${pitest.version}</version>
+						<dependencies>
+							<dependency>
+								<groupId>org.pitest</groupId>
+								<artifactId>pitest-junit5-plugin</artifactId>
+								<version>${pitest.junit5.version}</version>
+							</dependency>
+						</dependencies>
+						<configuration>
+							<!-- The packages with logic that tests are meant to detect changes in. -->
+							<targetClasses>
+								<param>pl.meetings.roombooking.*</param>
+							</targetClasses>
+							<!-- Entities, records and the main class carry no logic worth mutating. -->
+							<excludedClasses>
+								<param>pl.meetings.roombooking.RoomBookingApplication</param>
+								<param>pl.meetings.roombooking.room.Room</param>
+								<param>pl.meetings.roombooking.booking.Booking</param>
+								<param>pl.meetings.roombooking.booking.BookingStatus</param>
+								<param>pl.meetings.roombooking.*.*Request</param>
+								<param>pl.meetings.roombooking.*.*Response</param>
+								<param>pl.meetings.roombooking.*.*Slot</param>
+								<param>pl.meetings.roombooking.pricing.PriceQuote</param>
+							</excludedClasses>
+							<targetTests>
+								<param>pl.meetings.roombooking.*</param>
+							</targetTests>
+							<outputFormats>
+								<outputFormat>XML</outputFormat>
+								<outputFormat>HTML</outputFormat>
+							</outputFormats>
+							<!-- eval/ expects the fixed path target/pit-reports/mutations.xml. -->
+							<timestampedReports>false</timestampedReports>
+							<exportLineCoverage>true</exportLineCoverage>
+							<!-- Otherwise one failing generated test aborts the whole run. -->
+							<skipFailingTests>true</skipFailingTests>
+							<mutators>
+								<mutator>DEFAULTS</mutator>
+							</mutators>
+							<threads>2</threads>
+							<jvmArgs>
+								<!-- Mockito attaches itself as an agent at runtime. -->
+								<value>-XX:+EnableDynamicAgentLoading</value>
+								<value>-Xmx1g</value>
+							</jvmArgs>
+							<failWhenNoMutations>true</failWhenNoMutations>
+							<verbose>false</verbose>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
+
 </project>
